@@ -20,13 +20,26 @@ function! s:unshift(list, val)
   return insert(a:list, a:val)
 endfunction
 
+function! s:cons(x, xs)
+  return [a:x] + a:xs
+endfunction
+
+function! s:conj(xs, x)
+  return a:xs + [a:x]
+endfunction
+
 " Removes duplicates from a list.
-function! s:uniq(list, ...)
-  let list = a:0 ? map(copy(a:list), printf('[v:val, %s]', a:1)) : copy(a:list)
+function! s:uniq(list)
+  return s:uniq_by(a:list, 'v:val')
+endfunction
+
+" Removes duplicates from a list.
+function! s:uniq_by(list, f)
+  let list = map(copy(a:list), printf('[v:val, %s]', a:f))
   let i = 0
   let seen = {}
   while i < len(list)
-    let key = string(a:0 ? list[i][1] : list[i])
+    let key = string(list[i][1])
     if has_key(seen, key)
       call remove(list, i)
     else
@@ -34,7 +47,7 @@ function! s:uniq(list, ...)
       let i += 1
     endif
   endwhile
-  return a:0 ? map(list, 'v:val[0]') : list
+  return map(list, 'v:val[0]')
 endfunction
 
 function! s:clear(list)
@@ -47,25 +60,29 @@ endfunction
 " Concatenates a list of lists.
 " XXX: Should we verify the input?
 function! s:concat(list)
-  let list = []
+  let memo = []
   for Value in a:list
-    let list += Value
+    let memo += Value
   endfor
-  return list
+  return memo
 endfunction
 
-" Flattens a list.
-function! s:flatten(list)
-  let list = []
+" Take each elements from lists to a new list.
+function! s:flatten(list, ...)
+  let limit = a:0 > 0 ? a:1 : -1
+  let memo = []
+  if limit == 0
+    return a:list
+  endif
+  let limit -= 1
   for Value in a:list
-    if type(Value) == type([])
-      let list += s:flatten(Value)
-    else
-      call add(list, Value)
-    endif
+    let memo +=
+          \ type(Value) == type([]) ?
+          \   s:flatten(Value, limit) :
+          \   [Value]
     unlet! Value
   endfor
-  return list
+  return memo
 endfunction
 
 " Sorts a list with expression to compare each two values.
@@ -94,7 +111,7 @@ endfunction
 " Returns a maximum value in {list} through given {expr}.
 " Returns 0 if {list} is empty.
 " v:val is used in {expr}
-function! s:max(list, expr)
+function! s:max_by(list, expr)
   if empty(a:list)
     return 0
   endif
@@ -106,8 +123,8 @@ endfunction
 " Returns 0 if {list} is empty.
 " v:val is used in {expr}
 " FIXME: -0x80000000 == 0x80000000
-function! s:min(list, expr)
-  return s:max(a:list, '-(' . a:expr . ')')
+function! s:min_by(list, expr)
+  return s:max_by(a:list, '-(' . a:expr . ')')
 endfunction
 
 " Returns List of character sequence between [a:from, a:to]
@@ -119,10 +136,10 @@ function! s:char_range(from, to)
   \)
 endfunction
 
-" Returns true if a:list has a:Value.
+" Returns true if a:list has a:value.
 " Returns false otherwise.
-function! s:has(list, Value)
-  return index(a:list, a:Value) isnot -1
+function! s:has(list, value)
+  return index(a:list, a:value) isnot -1
 endfunction
 
 " Returns true if a:list[a:index] exists.
@@ -181,6 +198,18 @@ function! s:or(xs)
   return s:any('v:val', a:xs)
 endfunction
 
+function! s:map_accum(expr, xs, init)
+  let memo = []
+  let init = a:init
+  for x in a:xs
+    let expr = substitute(a:expr, 'v:memo', init, 'g')
+    let expr = substitute(expr, 'v:val', x, 'g')
+    let [tmp, init] = eval(expr)
+    call add(memo, tmp)
+  endfor
+  return memo
+endfunction
+
 " similar to Haskell's Prelude.foldl
 function! s:foldl(f, init, xs)
   let memo = a:init
@@ -203,15 +232,7 @@ endfunction
 
 " similar to Haskell's Prelude.foldr
 function! s:foldr(f, init, xs)
-  let memo = a:init
-  for i in reverse(range(0, len(a:xs) - 1))
-    let x = a:xs[i]
-    let expr = substitute(a:f, 'v:val', string(x), 'g')
-    let expr = substitute(expr, 'v:memo', string(memo), 'g')
-    unlet memo
-    let memo = eval(expr)
-  endfor
-  return memo
+  return s:foldl(a:f, a:init, reverse(copy(a:xs)))
 endfunction
 
 " similar to Haskell's Prelude.fold11
@@ -227,6 +248,58 @@ function! s:zip(...)
   return map(range(min(map(copy(a:000), 'len(v:val)'))), "map(copy(a:000), 'v:val['.v:val.']')")
 endfunction
 
+" similar to zip(), but goes until the longer one.
+function! s:zip_fill(xs, ys, filler)
+  if empty(a:xs) && empty(a:ys)
+    return []
+  elseif empty(a:ys)
+    return s:cons([a:xs[0], a:filler], s:zip_fill(a:xs[1 :], [], a:filler))
+  elseif empty(a:xs)
+    return s:cons([a:filler, a:ys[0]], s:zip_fill([], a:ys[1 :], a:filler))
+  else
+    return s:cons([a:xs[0], a:ys[0]], s:zip_fill(a:xs[1 :], a:ys[1: ], a:filler))
+  endif
+endfunction
+
+" Inspired by Ruby's with_index method.
+function! s:with_index(list, ...)
+  let base = a:0 > 0 ? a:1 : 0
+  return s:zip(a:list, range(base, len(a:list)+base-1))
+endfunction
+
+" similar to Ruby's detect or Haskell's find.
+" TODO spec and doc
+function! s:find(list, default, f)
+  for x in a:list
+    if eval(substitute(a:f, 'v:val', string(x), 'g'))
+      return x
+    endif
+  endfor
+  return a:default
+endfunction
+
+" Return non-zero if a:list1 and a:list2 have any common item(s).
+" Return zero otherwise.
+function! s:has_common_items(list1, list2)
+  return !empty(filter(copy(a:list1), 'index(a:list2, v:val) isnot -1'))
+endfunction
+
+" similar to Ruby's group_by.
+function! s:group_by(xs, f)
+  let result = {}
+  let list = map(copy(a:xs), printf('[v:val, %s]', a:f))
+  for x in list
+    let Val = x[0]
+    let key = type(x[1]) !=# type('') ? string(x[1]) : x[1]
+    if has_key(result, key)
+      call add(result[key], Val)
+    else
+      let result[key] = [Val]
+    endif
+    unlet Val
+  endfor
+  return result
+endfunction
 
 let &cpo = s:save_cpo
 unlet s:save_cpo

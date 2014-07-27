@@ -1,6 +1,6 @@
 "=============================================================================
-" FILE: context_filetype.vim
-" AUTHOR: Shougo Matsushita <Shougo.Matsu@gmail.com>
+" FILE: matcher_length.vim
+" AUTHOR:  Shougo Matsushita <Shougo.Matsu@gmail.com>
 " License: MIT license  {{{
 "     Permission is hereby granted, free of charge, to any person obtaining
 "     a copy of this software and associated documentation files (the
@@ -26,37 +26,35 @@
 let s:save_cpo = &cpo
 set cpo&vim
 
-" context_filetype.vim installation check.
-if !exists('s:exists_context_filetype')
-  try
-    call context_filetype#version()
-    let s:exists_context_filetype = 1
-  catch
-    let s:exists_context_filetype = 0
-  endtry
-endif
-
-function! neocomplete#context_filetype#set() "{{{
-  let neocomplete = neocomplete#get_current_neocomplete()
-  let context_filetype =
-        \ s:exists_context_filetype ?
-        \ context_filetype#get_filetype() : &filetype
-  if context_filetype == ''
-    let context_filetype = 'nothing'
-  endif
-  let neocomplete.context_filetype = context_filetype
-
-  return neocomplete.context_filetype
+function! neocomplete#filters#matcher_length#define() "{{{
+  return s:matcher
 endfunction"}}}
-function! neocomplete#context_filetype#get(filetype) "{{{
-  let context_filetype =
-        \ s:exists_context_filetype ?
-        \ context_filetype#get_filetype(a:filetype) : a:filetype
-  if context_filetype == ''
-    let context_filetype = 'nothing'
+
+let s:matcher = {
+      \ 'name' : 'matcher_length',
+      \ 'description' : 'input length matcher',
+      \}
+
+function! s:matcher.filter(context) "{{{
+  if empty(a:context.candidates)
+    return []
   endif
 
-  return context_filetype
+  lua << EOF
+do
+  local candidates = vim.eval('a:context.candidates')
+  local len = string.len(vim.eval('a:context.complete_str'))
+  for i = #candidates-1, 0, -1 do
+    local word = vim.type(candidates[i]) == 'dict' and
+    candidates[i].word or candidates[i]
+    if string.len(word) <= len then
+      candidates[i] = nil
+    end
+  end
+end
+EOF
+
+  return a:context.candidates
 endfunction"}}}
 
 let &cpo = s:save_cpo

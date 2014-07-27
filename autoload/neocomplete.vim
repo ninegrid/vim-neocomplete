@@ -1,7 +1,6 @@
 "=============================================================================
 " FILE: neocomplete.vim
 " AUTHOR:  Shougo Matsushita <Shougo.Matsu@gmail.com>
-" Last Modified: 30 Jul 2013.
 " License: MIT license  {{{
 "     Permission is hereby granted, free of charge, to any person obtaining
 "     a copy of this software and associated documentation files (the
@@ -46,6 +45,8 @@ let g:neocomplete#enable_ignore_case =
       \ get(g:, 'neocomplete#enable_ignore_case', &ignorecase)
 let g:neocomplete#enable_smart_case =
       \ get(g:, 'neocomplete#enable_smart_case', &infercase)
+let g:neocomplete#enable_camel_case =
+      \ get(g:, 'neocomplete#enable_camel_case', 0)
 let g:neocomplete#disable_auto_complete =
       \ get(g:, 'neocomplete#disable_auto_complete', 0)
 let g:neocomplete#enable_fuzzy_completion =
@@ -83,8 +84,6 @@ let g:neocomplete#sources =
       \ get(g:, 'neocomplete#sources', {})
 let g:neocomplete#keyword_patterns =
       \ get(g:, 'neocomplete#keyword_patterns', {})
-let g:neocomplete#next_keyword_patterns =
-      \ get(g:, 'neocomplete#next_keyword_patterns', {})
 let g:neocomplete#same_filetypes =
       \ get(g:, 'neocomplete#same_filetypes', {})
 let g:neocomplete#delimiter_patterns =
@@ -99,6 +98,8 @@ let g:neocomplete#force_omni_input_patterns =
       \ get(g:, 'neocomplete#force_omni_input_patterns', {})
 let g:neocomplete#ignore_composite_filetypes =
       \ get(g:, 'neocomplete#ignore_composite_filetypes', {})
+let g:neocomplete#ignore_source_files =
+      \ get(g:, 'neocomplete#ignore_source_files', [])
 "}}}
 
 function! neocomplete#initialize() "{{{
@@ -120,7 +121,10 @@ endfunction"}}}
 function! neocomplete#define_source(source) "{{{
   let sources = neocomplete#variables#get_sources()
   for source in neocomplete#util#convert2list(a:source)
-    let sources[source.name] = neocomplete#init#_source(source)
+    let source = neocomplete#init#_source(source)
+    if !source.disabled
+      let sources[source.name] = source
+    endif
   endfor
 endfunction"}}}
 function! neocomplete#define_filter(filter) "{{{
@@ -136,9 +140,6 @@ function! neocomplete#custom_source(source_name, option_name, value) "{{{
   return neocomplete#custom#source(a:source_name, a:option_name, a:value)
 endfunction"}}}
 
-function! neocomplete#is_enabled_source(source_name) "{{{
-  return neocomplete#helper#is_enabled_source(a:source_name)
-endfunction"}}}
 function! neocomplete#dup_filter(list) "{{{
   return neocomplete#util#dup_filter(a:list)
 endfunction"}}}
@@ -157,30 +158,27 @@ function! neocomplete#get_cur_text(...) "{{{
         \  neocomplete.cur_text != '') ?
         \ neocomplete.cur_text : neocomplete#helper#get_cur_text()
 endfunction"}}}
-function! neocomplete#get_next_keyword() "{{{
-  " Get next keyword.
-  let pattern = '^\%(' . neocomplete#get_next_keyword_pattern() . '\m\)'
-
-  return matchstr('a'.getline('.')[len(neocomplete#get_cur_text()) :], pattern)[1:]
-endfunction"}}}
 function! neocomplete#get_keyword_pattern(...) "{{{
-  let filetype = a:0 != 0? a:000[0] : neocomplete#get_context_filetype()
+  let filetype = a:0 != 0? a:1 : neocomplete#get_context_filetype()
+  if a:0 < 2
+    return neocomplete#helper#unite_patterns(
+          \ g:neocomplete#keyword_patterns, filetype)
+  endif
 
-  return neocomplete#helper#unite_patterns(
-        \ g:neocomplete#keyword_patterns, filetype)
-endfunction"}}}
-function! neocomplete#get_next_keyword_pattern(...) "{{{
-  let filetype = a:0 != 0? a:000[0] : neocomplete#get_context_filetype()
-  let next_pattern = neocomplete#helper#unite_patterns(
-        \ g:neocomplete#next_keyword_patterns, filetype)
+  let source = neocomplete#variables#get_source(a:2)
+  if !has_key(source, 'neocomplete__keyword_patterns')
+    let source.neocomplete__keyword_patterns = {}
+  endif
+  if !has_key(source.neocomplete__keyword_patterns, filetype)
+    let source.neocomplete__keyword_patterns[filetype] =
+          \ neocomplete#helper#unite_patterns(
+          \         source.keyword_patterns, filetype)
+  endif
 
-  return (next_pattern == '' ? '' : next_pattern.'\m\|')
-        \ . neocomplete#get_keyword_pattern(filetype)
+  return source.neocomplete__keyword_patterns[filetype]
 endfunction"}}}
 function! neocomplete#get_keyword_pattern_end(...) "{{{
-  let filetype = a:0 != 0? a:000[0] : neocomplete#get_context_filetype()
-
-  return '\%('.neocomplete#get_keyword_pattern(filetype).'\m\)$'
+  return '\%('.call('neocomplete#get_keyword_pattern', a:000).'\m\)$'
 endfunction"}}}
 function! neocomplete#match_word(...) "{{{
   return call('neocomplete#helper#match_word', a:000)
@@ -189,11 +187,10 @@ function! neocomplete#is_enabled() "{{{
   return neocomplete#init#is_enabled()
 endfunction"}}}
 function! neocomplete#is_locked(...) "{{{
-  let ignore_filetypes = ['unite', 'fuf', 'ku']
+  let ignore_filetypes = ['fuf', 'ku']
   let bufnr = a:0 > 0 ? a:1 : bufnr('%')
   return !neocomplete#is_enabled() || &paste
         \ || g:neocomplete#disable_auto_complete
-        \ || &l:completefunc == ''
         \ || index(ignore_filetypes, &filetype) >= 0
         \ || neocomplete#get_current_neocomplete().lock
         \ || (g:neocomplete#lock_buffer_name_pattern != '' &&
@@ -229,16 +226,14 @@ function! neocomplete#is_windows() "{{{
   return neocomplete#util#is_windows()
 endfunction"}}}
 function! neocomplete#is_prefetch() "{{{
-  return !neocomplete#is_locked() &&
+  return !neocomplete#is_locked() && !g:neocomplete#enable_cursor_hold_i &&
         \ (g:neocomplete#enable_prefetch || &l:formatoptions =~# 'a')
 endfunction"}}}
 function! neocomplete#exists_echodoc() "{{{
   return exists('g:loaded_echodoc') && g:loaded_echodoc
 endfunction"}}}
 function! neocomplete#within_comment() "{{{
-  let neocomplete = neocomplete#get_current_neocomplete()
-  return neocomplete.cur_text =~# substitute(
-        \ neocomplete#util#escape_pattern(&l:commentstring), '%s.*$', '', '')
+  return neocomplete#get_current_neocomplete().within_comment
 endfunction"}}}
 function! neocomplete#print_error(string) "{{{
   echohl Error | echomsg a:string | echohl None
@@ -256,18 +251,12 @@ endfunction"}}}
 function! neocomplete#get_source_filetypes(filetype) "{{{
   return neocomplete#helper#get_source_filetypes(a:filetype)
 endfunction"}}}
-function! neocomplete#get_sources_list(dictionary, filetype) "{{{
-  return neocomplete#helper#ftdictionary2list(a:dictionary, a:filetype)
-endfunction"}}}
 function! neocomplete#escape_match(str) "{{{
   return escape(a:str, '~"*\.^$[]')
 endfunction"}}}
 function! neocomplete#get_context_filetype(...) "{{{
-  if !neocomplete#is_enabled()
-    return &filetype
-  endif
-
-  let neocomplete = neocomplete#get_current_neocomplete()
+  let neocomplete = exists('b:neocomplete') ?
+        \ b:neocomplete : neocomplete#get_current_neocomplete()
 
   if a:0 != 0 || mode() !=# 'i' ||
         \ neocomplete.context_filetype == ''
@@ -300,10 +289,19 @@ function! neocomplete#print_debug(expr) "{{{
   endif
 endfunction"}}}
 function! neocomplete#get_data_directory() "{{{
+  let g:neocomplete#data_directory =
+        \ get(g:, 'neocomplete#data_directory',
+        \  ($XDG_CACHE_DIR != '' ?
+        \   $XDG_CACHE_DIR . '/neocomplete' : '~/.cache/neocomplete'))
   let directory = neocomplete#util#substitute_path_separator(
         \ neocomplete#util#expand(g:neocomplete#data_directory))
   if !isdirectory(directory)
-    call mkdir(directory, 'p')
+    if neocomplete#util#is_sudo()
+      call neocomplete#print_error(printf(
+            \ 'Cannot create Directory "%s" in sudo session.', directory))
+    else
+      call mkdir(directory, 'p')
+    endif
   endif
 
   return directory

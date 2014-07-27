@@ -1,5 +1,5 @@
 "=============================================================================
-" FILE: context_filetype.vim
+" FILE: echodoc.vim
 " AUTHOR: Shougo Matsushita <Shougo.Matsu@gmail.com>
 " License: MIT license  {{{
 "     Permission is hereby granted, free of charge, to any person obtaining
@@ -26,37 +26,49 @@
 let s:save_cpo = &cpo
 set cpo&vim
 
-" context_filetype.vim installation check.
-if !exists('s:exists_context_filetype')
-  try
-    call context_filetype#version()
-    let s:exists_context_filetype = 1
-  catch
-    let s:exists_context_filetype = 0
-  endtry
-endif
+" For echodoc. "{{{
+let s:doc_dict = {
+      \ 'name' : 'neocomplete',
+      \ 'rank' : 10,
+      \ }
+function! s:doc_dict.search(cur_text) "{{{
+  let item = neocomplete#get_current_neocomplete().completed_item
 
-function! neocomplete#context_filetype#set() "{{{
-  let neocomplete = neocomplete#get_current_neocomplete()
-  let context_filetype =
-        \ s:exists_context_filetype ?
-        \ context_filetype#get_filetype() : &filetype
-  if context_filetype == ''
-    let context_filetype = 'nothing'
+  if empty(item)
+    return []
   endif
-  let neocomplete.context_filetype = context_filetype
 
-  return neocomplete.context_filetype
+  let ret = []
+
+  let abbr = (has_key(item, 'abbr') && item.word !=# item.abbr) ?
+        \ item.abbr : split(item.info, '\n')[0]
+  if has_key(item, 'abbr')
+        \ && abbr ==# item.abbr && len(get(item, 'menu', '')) > 5
+    " Combine menu.
+    let abbr .= ' ' . item.menu
+  endif
+
+  " Skip
+  if len(abbr) < len(item.word) + 2
+    return []
+  endif
+
+  let match = match(abbr, neocomplete#escape_match(item.word))
+  if match > 0
+    call add(ret, { 'text' : abbr[ : match-1] })
+  endif
+
+  call add(ret, { 'text' : item.word, 'highlight' : 'Identifier' })
+  call add(ret, { 'text' : abbr[match+len(item.word) :] })
+
+  return ret
 endfunction"}}}
-function! neocomplete#context_filetype#get(filetype) "{{{
-  let context_filetype =
-        \ s:exists_context_filetype ?
-        \ context_filetype#get_filetype(a:filetype) : a:filetype
-  if context_filetype == ''
-    let context_filetype = 'nothing'
-  endif
+"}}}
 
-  return context_filetype
+function! neocomplete#echodoc#init() "{{{
+  if neocomplete#exists_echodoc()
+    call echodoc#register(s:doc_dict.name, s:doc_dict)
+  endif
 endfunction"}}}
 
 let &cpo = s:save_cpo

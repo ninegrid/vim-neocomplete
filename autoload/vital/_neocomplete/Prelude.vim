@@ -1,9 +1,6 @@
 let s:save_cpo = &cpo
 set cpo&vim
 
-" glob() wrapper which returns List
-" and 'wildignore' does not affect
-" this function's return value.
 if v:version ># 703 ||
 \  (v:version is 703 && has('patch465'))
   function! s:glob(expr)
@@ -15,9 +12,7 @@ else
     return split(R, '\n')
   endfunction
 endif
-" globpath() wrapper which returns List
-" and 'suffixes' and 'wildignore' does not affect
-" this function's return value.
+
 function! s:globpath(path, expr)
   let R = globpath(a:path, a:expr, 1)
   return split(R, '\n')
@@ -30,15 +25,13 @@ let [
 \   s:__TYPE_FUNCREF,
 \   s:__TYPE_LIST,
 \   s:__TYPE_DICT,
-\   s:__TYPE_FLOAT
-\] = [
-\   type(3),
-\   type(""),
-\   type(function('tr')),
-\   type([]),
-\   type({}),
-\   has('float') ? type(str2float('0')) : -1
-\]
+\   s:__TYPE_FLOAT] = [
+      \   type(3),
+      \   type(""),
+      \   type(function('tr')),
+      \   type([]),
+      \   type({}),
+      \   has('float') ? type(str2float('0')) : -1]
 " __TYPE_FLOAT = -1 when -float
 " This doesn't match to anything.
 
@@ -48,13 +41,12 @@ function! s:is_numeric(Value)
   return _ ==# s:__TYPE_NUMBER
   \   || _ ==# s:__TYPE_FLOAT
 endfunction
+
 " Number
-function! s:is_integer(Value)
-  return type(a:Value) ==# s:__TYPE_NUMBER
-endfunction
 function! s:is_number(Value)
   return type(a:Value) ==# s:__TYPE_NUMBER
 endfunction
+
 " Float
 function! s:is_float(Value)
   return type(a:Value) ==# s:__TYPE_FLOAT
@@ -77,6 +69,11 @@ function! s:is_dict(Value)
 endfunction
 
 function! s:truncate_smart(str, max, footer_width, separator)
+  echoerr 'Prelude.truncate_smart() is obsolete. Use its truncate_skipping() instead; they are equivalent.'
+  return s:truncate_skipping(a:str, a:max, a:footer_width, a:separator)
+endfunction
+
+function! s:truncate_skipping(str, max, footer_width, separator)
   let width = s:wcswidth(a:str)
   if width <= a:max
     let ret = a:str
@@ -195,25 +192,26 @@ let s:is_mac = !s:is_windows && !s:is_cygwin
       \ && (has('mac') || has('macunix') || has('gui_macvim') ||
       \   (!isdirectory('/proc') && executable('sw_vers')))
 let s:is_unix = has('unix')
+
 function! s:is_windows()
   return s:is_windows
 endfunction
+
 function! s:is_cygwin()
   return s:is_cygwin
 endfunction
+
 function! s:is_mac()
   return s:is_mac
 endfunction
+
 function! s:is_unix()
   return s:is_unix
 endfunction
 
-function! s:print_error(message)
-  echohl ErrorMsg
-  for m in split(a:message, "\n")
-    echomsg m
-  endfor
-  echohl None
+function! s:_deprecated2(fname)
+  echomsg printf("Vital.Prelude.%s is deprecated!",
+        \ a:fname)
 endfunction
 
 function! s:smart_execute_command(action, word)
@@ -223,46 +221,37 @@ endfunction
 function! s:escape_file_searching(buffer_name)
   return escape(a:buffer_name, '*[]?{}, ')
 endfunction
+
 function! s:escape_pattern(str)
   return escape(a:str, '~"\.^$[]*')
 endfunction
-" iconv() wrapper for safety.
-function! s:iconv(expr, from, to)
-  if a:from == '' || a:to == '' || a:from ==? a:to
-    return a:expr
-  endif
-  let result = iconv(a:expr, a:from, a:to)
-  return result != '' ? result : a:expr
-endfunction
-" Like builtin getchar() but returns string always.
+
 function! s:getchar(...)
   let c = call('getchar', a:000)
   return type(c) == type(0) ? nr2char(c) : c
 endfunction
-" Like builtin getchar() but returns string always.
-" and do inputsave()/inputrestore() before/after getchar().
+
 function! s:getchar_safe(...)
   let c = s:input_helper('getchar', a:000)
   return type(c) == type("") ? c : nr2char(c)
 endfunction
-" Like builtin getchar() but
-" do inputsave()/inputrestore() before/after input().
+
 function! s:input_safe(...)
-    return s:input_helper('input', a:000)
+  return s:input_helper('input', a:000)
 endfunction
-" Do inputsave()/inputrestore() before/after calling a:funcname.
+
 function! s:input_helper(funcname, args)
-    let success = 0
-    if inputsave() !=# success
-        throw 'inputsave() failed'
+  let success = 0
+  if inputsave() !=# success
+    throw 'inputsave() failed'
+  endif
+  try
+    return call(a:funcname, a:args)
+  finally
+    if inputrestore() !=# success
+      throw 'inputrestore() failed'
     endif
-    try
-        return call(a:funcname, a:args)
-    finally
-        if inputrestore() !=# success
-            throw 'inputrestore() failed'
-        endif
-    endtry
+  endtry
 endfunction
 
 function! s:set_default(var, val)
@@ -270,19 +259,78 @@ function! s:set_default(var, val)
     let {a:var} = a:val
   endif
 endfunction
+
 function! s:set_dictionary_helper(variable, keys, pattern)
+  call s:_deprecated2('set_dictionary_helper')
+
   for key in split(a:keys, '\s*,\s*')
     if !has_key(a:variable, key)
       let a:variable[key] = a:pattern
     endif
   endfor
 endfunction
+
 function! s:substitute_path_separator(path)
   return s:is_windows ? substitute(a:path, '\\', '/', 'g') : a:path
 endfunction
+
 function! s:path2directory(path)
   return s:substitute_path_separator(isdirectory(a:path) ? a:path : fnamemodify(a:path, ':p:h'))
 endfunction
+
+function! s:_path2project_directory_git(path)
+  let parent = a:path
+
+  while 1
+    let path = parent . '/.git'
+    if isdirectory(path) || filereadable(path)
+      return parent
+    endif
+    let next = fnamemodify(parent, ':h')
+    if next == parent
+      return ''
+    endif
+    let parent = next
+  endwhile
+endfunction
+
+function! s:_path2project_directory_svn(path)
+  let search_directory = a:path
+  let directory = ''
+
+  let find_directory = s:escape_file_searching(search_directory)
+  let d = finddir('.svn', find_directory . ';')
+  if d == ''
+    return ''
+  endif
+
+  let directory = fnamemodify(d, ':p:h:h')
+
+  " Search parent directories.
+  let parent_directory = s:path2directory(
+        \ fnamemodify(directory, ':h'))
+
+  if parent_directory != ''
+    let d = finddir('.svn', parent_directory . ';')
+    if d != ''
+      let directory = s:_path2project_directory_svn(parent_directory)
+    endif
+  endif
+  return directory
+endfunction
+
+function! s:_path2project_directory_others(vcs, path)
+  let vcs = a:vcs
+  let search_directory = a:path
+
+  let find_directory = s:escape_file_searching(search_directory)
+  let d = finddir(vcs, find_directory . ';')
+  if d == ''
+    return ''
+  endif
+  return fnamemodify(d, ':p:h:h')
+endfunction
+
 function! s:path2project_directory(path, ...)
   let is_allow_empty = get(a:000, 0, 0)
   let search_directory = s:path2directory(a:path)
@@ -290,32 +338,23 @@ function! s:path2project_directory(path, ...)
 
   " Search VCS directory.
   for vcs in ['.git', '.bzr', '.hg', '.svn']
-    let find_directory = s:escape_file_searching(search_directory)
-    let d = finddir(vcs, find_directory . ';')
-    if d == ''
-      continue
+    if vcs ==# '.git'
+      let directory = s:_path2project_directory_git(search_directory)
+    elseif vcs ==# '.svn'
+      let directory = s:_path2project_directory_svn(search_directory)
+    else
+      let directory = s:_path2project_directory_others(vcs, search_directory)
     endif
-
-    let directory = fnamemodify(d, ':p:h:h')
-
-    if vcs ==# '.svn'
-      " Search parent directories.
-      let parent_directory = s:path2directory(
-            \ fnamemodify(directory, ':h'))
-
-      if parent_directory != ''
-        let d = finddir(vcs, parent_directory . ';')
-        if d != ''
-          let directory = s:path2project_directory(parent_directory)
-        endif
-      endif
+    if directory != ''
+      break
     endif
   endfor
 
   " Search project file.
   if directory == ''
-    for d in ['build.xml', 'prj.el', '.project', 'pom.xml',
-          \ 'Makefile', 'configure', 'Rakefile', 'NAnt.build', 'tags', 'gtags']
+    for d in ['build.xml', 'prj.el', '.project', 'pom.xml', 'package.json',
+          \ 'Makefile', 'configure', 'Rakefile', 'NAnt.build',
+          \ 'P4CONFIG', 'tags', 'gtags']
       let d = findfile(d, s:escape_file_searching(search_directory) . ';')
       if d != ''
         let directory = fnamemodify(d, ':p:h')
@@ -338,45 +377,6 @@ function! s:path2project_directory(path, ...)
   endif
 
   return s:substitute_path_separator(directory)
-endfunction
-" Check vimproc.
-function! s:has_vimproc()
-  if !exists('s:exists_vimproc')
-    try
-      call vimproc#version()
-      let s:exists_vimproc = 1
-    catch
-      let s:exists_vimproc = 0
-    endtry
-  endif
-  return s:exists_vimproc
-endfunction
-
-function! s:system(str, ...)
-  let command = a:str
-  let input = a:0 >= 1 ? a:1 : ''
-  let command = s:iconv(command, &encoding, 'char')
-  let input = s:iconv(input, &encoding, 'char')
-
-  if a:0 == 0
-    let output = s:has_vimproc() ?
-          \ vimproc#system(command) : system(command)
-  elseif a:0 == 1
-    let output = s:has_vimproc() ?
-          \ vimproc#system(command, input) : system(command, input)
-  else
-    " ignores 3rd argument unless you have vimproc.
-    let output = s:has_vimproc() ?
-          \ vimproc#system(command, input, a:2) : system(command, input)
-  endif
-
-  let output = s:iconv(output, 'char', &encoding)
-
-  return output
-endfunction
-function! s:get_last_status()
-  return s:has_vimproc() ?
-        \ vimproc#get_last_status() : v:shell_error
 endfunction
 
 let &cpo = s:save_cpo

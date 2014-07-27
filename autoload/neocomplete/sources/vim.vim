@@ -1,7 +1,6 @@
 "=============================================================================
 " FILE: vim.vim
 " AUTHOR:  Shougo Matsushita <Shougo.Matsu@gmail.com>
-" Last Modified: 24 Jun 2013.
 " License: MIT license  {{{
 "     Permission is hereby granted, free of charge, to any person obtaining
 "     a copy of this software and associated documentation files (the
@@ -37,6 +36,7 @@ let s:source = {
       \ 'kind' : 'manual',
       \ 'filetypes' : { 'vim' : 1, 'vimconsole' : 1, },
       \ 'mark' : '[vim]',
+      \ 'is_volatile' : 1,
       \ 'rank' : 300,
       \ 'hooks' : {},
       \}
@@ -57,10 +57,6 @@ endfunction"}}}
 
 function! s:source.hooks.on_final(context) "{{{
   silent! delcommand NeoCompleteVimMakeCache
-
-  if neocomplete#exists_echodoc()
-    call echodoc#unregister('vim')
-  endif
 endfunction"}}}
 
 function! s:source.get_complete_position(context) "{{{
@@ -72,27 +68,26 @@ function! s:source.get_complete_position(context) "{{{
   endif
 
   let pattern = '\.\%(\h\w*\)\?$\|' .
-        \ neocomplete#get_keyword_pattern_end('vim')
+        \ neocomplete#get_keyword_pattern_end('vim', self.name)
   if cur_text != '' && cur_text !~
         \ '^[[:digit:],[:space:][:tab:]$''<>]*\h\w*$'
     let command_completion =
           \ neocomplete#sources#vim#helper#get_completion_name(
           \   neocomplete#sources#vim#get_command(cur_text))
     if command_completion =~ '\%(dir\|file\|shellcmd\)'
-      let pattern = neocomplete#get_keyword_pattern_end('filename')
+      let pattern = neocomplete#get_keyword_pattern_end('filename', self.name)
     endif
   endif
 
   let [complete_pos, complete_str] =
-        \ neocomplete#match_word(a:context.input, pattern)
+        \ neocomplete#helper#match_word(a:context.input, pattern)
   if complete_pos < 0
     " Use args pattern.
     let [complete_pos, complete_str] =
-          \ neocomplete#match_word(a:context.input, '\S\+$')
+          \ neocomplete#helper#match_word(a:context.input, '\S\+$')
   endif
 
   if a:context.input !~ '\.\%(\h\w*\)\?$' && neocomplete#is_auto_complete()
-        \ && bufname('%') !=# '[Command Line]'
         \ && len(complete_str) < g:neocomplete#auto_completion_start_length
     return -1
   endif
@@ -116,15 +111,13 @@ function! s:source.gather_candidates(context) "{{{
           \ cur_text, complete_str)
   elseif a:context.complete_str =~# '^&\%([gl]:\)\?'
     " Options.
-    let prefix = matchstr(a:context.complete_str, '&\%([gl]:\)\?')
+    let prefix = matchstr(a:context.complete_str, '^&\%([gl]:\)\?')
     let list = deepcopy(
           \ neocomplete#sources#vim#helper#option(
           \   cur_text, a:context.complete_str))
     for keyword in list
       let keyword.word =
             \ prefix . keyword.word
-      let keyword.abbr = prefix .
-            \ get(keyword, 'abbr', keyword.word)
     endfor
   elseif a:context.complete_str =~? '^\c<sid>'
     " SID functions.
